@@ -1,5 +1,6 @@
 {
   "name": "airtable",
+  "homepage": "https://sichenz.github.io/Medical-Client-Information",
   "version": "0.1.0",
   "private": true,
   "dependencies": {
