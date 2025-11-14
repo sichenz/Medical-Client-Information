@@ -45,8 +45,6 @@ export default function ClientDatabase() {
   // Email campaign states
   const [emailCampaign, setEmailCampaign] = useState(null);
   const [showEmailPreview, setShowEmailPreview] = useState(false);
-  const [sendingEmails, setSendingEmails] = useState(false);
-  const [emailsSent, setEmailsSent] = useState([]);
 
   // Scroll to bottom of chat
   const scrollToBottom = () => {
@@ -125,6 +123,23 @@ export default function ClientDatabase() {
     return emails;
   };
 
+  // Extract specific client names from prompt
+  const extractClientNamesFromPrompt = (prompt) => {
+    const lowerPrompt = prompt.toLowerCase();
+    const clientNames = [];
+    
+    // Check each client's name against the prompt
+    filteredClients.forEach((client) => {
+      const fields = client.fields;
+      const name = fields.Name || fields.name || fields['First Name'] || '';
+      if (name && lowerPrompt.includes(name.toLowerCase())) {
+        clientNames.push(name);
+      }
+    });
+    
+    return clientNames;
+  };
+
   // Generate email campaign
   const generateEmailCampaign = async (prompt) => {
     if (!openaiKey) {
@@ -135,11 +150,20 @@ export default function ClientDatabase() {
     setChatLoading(true);
 
     try {
-      const recipients = extractEmails();
+      // Check if user specified specific clients
+      const specifiedNames = extractClientNamesFromPrompt(prompt);
+      let recipients = extractEmails();
+      
+      // Filter recipients if specific names were mentioned
+      if (specifiedNames.length > 0) {
+        recipients = recipients.filter(r => 
+          specifiedNames.some(name => r.name.toLowerCase().includes(name.toLowerCase()))
+        );
+      }
 
       if (recipients.length === 0) {
         throw new Error(
-          'No email addresses found in filtered clients. Make sure your table has an email field.',
+          'No email addresses found for the specified clients. Make sure your table has an email field.',
         );
       }
 
@@ -217,41 +241,36 @@ The body should be professional, engaging, and appropriate for the context. If u
     }
   };
 
-  // Send emails (simulated - in production, use a backend service)
+  // Send emails via mailto link
   const sendEmails = async () => {
     if (!emailCampaign) return;
 
-    setSendingEmails(true);
-    setEmailsSent([]);
-
     try {
-      for (let i = 0; i < emailCampaign.recipients.length; i++) {
-        const recipient = emailCampaign.recipients[i];
-
-        let personalizedBody = emailCampaign.body;
-        if (emailCampaign.usePersonalization) {
-          personalizedBody = personalizedBody.replace(
-            /\{\{name\}\}/g,
-            recipient.name,
-          );
-        }
-
-        // Simulate API call
-        await new Promise((resolve) => setTimeout(resolve, 500));
-
-        setEmailsSent((prev) => [...prev, recipient.email]);
+      // Prepare recipients list
+      const toList = emailCampaign.recipients.map(r => r.email).join(',');
+      
+      // Prepare body - use first recipient's name for personalization preview
+      let emailBody = emailCampaign.body;
+      if (emailCampaign.usePersonalization && emailCampaign.recipients.length > 0) {
+        // Note in body about personalization
+        emailBody = `[Note: This template uses {{name}} for personalization. Replace with actual names when sending individually]\n\n${emailBody}`;
       }
-
-      alert(
-        `Successfully sent ${emailCampaign.recipients.length} emails!`,
-      );
-      setShowEmailPreview(false);
-      setEmailCampaign(null);
-      setEmailsSent([]);
+      
+      // Encode subject and body for URL
+      const subject = encodeURIComponent(emailCampaign.subject);
+      const body = encodeURIComponent(emailBody);
+      
+      // Create mailto link
+      const mailtoLink = `mailto:${toList}?subject=${subject}&body=${body}`;
+      
+      // Open default email client
+      window.location.href = mailtoLink;
+      
+      // Show success message
+      alert(`Opening email client with ${emailCampaign.recipients.length} recipients...`);
+      
     } catch (err) {
-      alert(`Error sending emails: ${err.message}`);
-    } finally {
-      setSendingEmails(false);
+      alert(`Error opening email client: ${err.message}`);
     }
   };
 
@@ -807,18 +826,10 @@ When they ask about email campaigns, explain that you can generate emails for th
                         className="flex items-center justify-between py-2 border-b border-gray-200 last:border-0"
                       >
                         <div>
-                          <p className="font-medium text-sm">
-                            {recipient.name}
-                          </p>
                           <p className="text-xs text-gray-600">
                             {recipient.email}
                           </p>
                         </div>
-                        {emailsSent.includes(recipient.email) && (
-                          <span className="text-green-600 text-xs">
-                            ✓ Sent
-                          </span>
-                        )}
                       </div>
                     ))}
                   </div>
@@ -834,36 +845,23 @@ When they ask about email campaigns, explain that you can generate emails for th
                   </button>
                   <button
                     onClick={sendEmails}
-                    disabled={sendingEmails}
-                    className="flex-1 bg-indigo-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    className="flex-1 bg-indigo-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-indigo-700 transition flex items-center justify-center gap-2"
                   >
-                    {sendingEmails ? (
-                      <>
-                        <RefreshCw className="w-5 h-5 animate-spin" />
-                        Sending... ({emailsSent.length}/
-                        {emailCampaign.recipients.length})
-                      </>
-                    ) : (
-                      <>
-                        <Send className="w-5 h-5" />
-                        Send to {emailCampaign.recipients.length} Recipients
-                      </>
-                    )}
+                    <Send className="w-5 h-5" />
+                    Open in Email Client ({emailCampaign.recipients.length} Recipients)
                   </button>
                 </div>
 
                 {/* Warning Notice */}
-                <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded">
-                  <p className="text-sm text-yellow-800">
-                    <strong>⚠️ Development Mode:</strong> This is a
-                    simulated send function. To actually send emails in
-                    production:
+                <div className="bg-blue-50 border-l-4 border-blue-400 p-4 rounded">
+                  <p className="text-sm text-blue-800">
+                    <strong>📧 Email Client Integration:</strong> This will open your default email application with all recipients pre-filled.
                   </p>
-                  <ul className="text-xs text-yellow-700 mt-2 ml-4 list-disc space-y-1">
-                    <li>Set up a backend API endpoint</li>
-                    <li>Integrate with SendGrid, AWS SES, Mailgun, or SMTP</li>
-                    <li>Add proper authentication and rate limiting</li>
-                    <li>Implement email delivery tracking</li>
+                  <ul className="text-xs text-blue-700 mt-2 ml-4 list-disc space-y-1">
+                    <li>All {emailCampaign.recipients.length} recipients will be added to the "To" field</li>
+                    <li>Subject and body will be pre-filled</li>
+                    <li>Review and customize before sending</li>
+                    <li>For personalized emails, consider sending individually</li>
                   </ul>
                 </div>
               </div>
@@ -963,7 +961,7 @@ When they ask about email campaigns, explain that you can generate emails for th
                     </p>
                   </div>
                 </div>
-                {msg.showPreviewButton && (
+                {msg.showPreviewButton && emailCampaign && (
                   <div className="flex justify-start mt-2">
                     <button
                       onClick={() => setShowEmailPreview(true)}
